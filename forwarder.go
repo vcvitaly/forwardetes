@@ -48,7 +48,6 @@ func portForwardAll(args []forwardArgs, out io.Writer) error {
 	var kubeCmds []*cmd.Cmd
 	lastLineMap := make(map[string]counterPair)
 	for _, fArgs := range args {
-
 		kubeCmd := cmd.NewCmd(kubeExec, fArgs...)
 		kubeCmds = append(kubeCmds, kubeCmd)
 		statusChan := kubeCmd.Start()

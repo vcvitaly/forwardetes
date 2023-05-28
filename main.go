@@ -70,7 +70,9 @@ func run(mappingsFile string, appFile string, namespace string, out io.Writer) e
 
 	matchedMappings := findMatchingSvcMappings(allMappingsByLocalPort, appPorts)
 
-	params := provideParams(matchedMappings, namespace)
+	matchedMappingsWithClosedPorts := filterClosedPorts(matchedMappings)
+
+	params := provideParams(matchedMappingsWithClosedPorts, namespace)
 
 	err = portForwardAll(params, out)
 	if err != nil {
@@ -90,4 +92,20 @@ func findMatchingSvcMappings(allMappingsByLocalPort map[localPort]svcPortMapping
 	}
 
 	return matchedMappings
+}
+
+func filterClosedPorts(matchedMappings []svcPortMapping) []svcPortMapping {
+	var closedPortMappings []svcPortMapping
+
+	for _, m := range matchedMappings {
+		aPortState := scanPort("localhost", int(m.localPort))
+		if aPortState.open {
+			log.Printf("The port %d on localhost is open by some other process, skipping it", aPortState.port)
+			continue
+		}
+
+		closedPortMappings = append(closedPortMappings, m)
+	}
+
+	return closedPortMappings
 }
