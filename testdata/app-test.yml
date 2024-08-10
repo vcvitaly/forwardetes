@@ -1,0 +1,10 @@
+server:
+  port: 8080
+
+jdbc:
+  url: jdbc:mysql://localhost:3306/db
+
+service:
+  url1: localhost:8081
+  nested:
+    url2: localhost:8082
