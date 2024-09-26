@@ -16,24 +16,21 @@ func main() {
 	if err := checkOS(); err != nil {
 		log.Fatalf("An error: %v", err)
 	}
-
 	_, err := exec.LookPath(kubectlCmdName)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	mappingsFile := flag.String("m", "", "Properties file with port=svc key-value pairs")
-	appFile := flag.String("a", "", "Application yml or properties file")
-	namespace := flag.String("n", "default", "Kubernetes namespace")
+	inputFile := flag.String("i", "", "Input file with a list of port-forward commands")
 	flag.Parse()
 
-	if *mappingsFile == "" || *appFile == "" {
+	if *inputFile == "" {
 		if err := usage(); err != nil {
 			log.Fatalf("An error while printing usage info to stderr: %v", err)
 		}
 	}
 
-	if err := run(*mappingsFile, *appFile, *namespace, os.Stdout); err != nil {
+	if err := run(*inputFile, os.Stdout); err != nil {
 		log.Fatalf("An error in the run method: %v", err)
 	}
 
@@ -57,22 +54,15 @@ func usage() error {
 	return nil
 }
 
-func run(mappingsFile string, appFile string, namespace string, out io.Writer) error {
-	allMappingsByLocalPort, err := parseSvcPortMapping(mappingsFile)
+func run(inputFile string, out io.Writer) error {
+	allMappings, err := parseSvcPortMapping(inputFile)
 	if err != nil {
 		return err
 	}
 
-	appPorts, err := parsePortsFromAppFile(appFile)
-	if err != nil {
-		return err
-	}
+	mappingsWithoutOpenPorts := filterOutOpenPortMappings(allMappings)
 
-	matchedMappings := findMatchingSvcMappings(allMappingsByLocalPort, appPorts)
-
-	matchedMappingsWithClosedPorts := filterClosedPorts(matchedMappings)
-
-	params := provideParams(matchedMappingsWithClosedPorts, namespace)
+	params := provideParams(mappingsWithoutOpenPorts, "default")
 
 	err = portForwardAll(params, out)
 	if err != nil {
@@ -82,19 +72,7 @@ func run(mappingsFile string, appFile string, namespace string, out io.Writer) e
 	return nil
 }
 
-func findMatchingSvcMappings(allMappingsByLocalPort map[localPort]svcPortMapping, appPorts []int) []svcPortMapping {
-	var matchedMappings []svcPortMapping
-
-	for _, port := range appPorts {
-		if mapping, ok := allMappingsByLocalPort[localPort(port)]; ok {
-			matchedMappings = append(matchedMappings, mapping)
-		}
-	}
-
-	return matchedMappings
-}
-
-func filterClosedPorts(matchedMappings []svcPortMapping) []svcPortMapping {
+func filterOutOpenPortMappings(matchedMappings []svcPortMapping) []svcPortMapping {
 	var closedPortMappings []svcPortMapping
 
 	for _, m := range matchedMappings {

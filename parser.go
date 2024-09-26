@@ -3,107 +3,93 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"github.com/magiconair/properties"
-	"log"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 )
 
 type svcPortMapping struct {
 	svcName       string
-	localPort     localPort
-	containerPort int
+	localPort     port
+	containerPort port
 }
 
-type localPort int
+type port int
 
 func (s svcPortMapping) String() string {
 	return fmt.Sprintf("{'%s', '%d', '%d'}", s.svcName, s.localPort, s.containerPort)
 }
 
-func parsePortsFromAppFile(appFile string) ([]int, error) {
-	file, err := os.Open(appFile)
-	if err != nil {
-		return nil, fmt.Errorf("an error while opening the app file: %w", err)
-	}
-	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			log.Fatalf("An error while closing the app file: %v", err)
-		}
-	}(file)
-
-	var ports []int
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		port, portExists, err := parsePortFromPropertyLine(scanner.Text())
-		if err != nil {
-			return nil, err
-		}
-		if portExists {
-			ports = append(ports, port)
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("an error while scanning the app file: %w", err)
-	}
-
-	return ports, nil
-}
-
-func parsePortFromPropertyLine(propertyLine string) (int, bool, error) {
-	re := regexp.MustCompile("localhost:(8\\d{3})")
-	match := re.FindStringSubmatch(propertyLine)
-	if len(match) < 1 || match[1] == "" {
-		return 0, false, nil
-	}
-
-	portStr := match[1]
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return 0, false, fmt.Errorf("an error while parsing %q: %w", portStr, err)
-	}
-
-	return port, true, nil
-}
-
-func parseSvcPortMapping(mappingsFile string) (map[localPort]svcPortMapping, error) {
-	p, err := properties.LoadFile(mappingsFile, properties.UTF8)
+func parseSvcPortMapping(mappingsFile string) ([]svcPortMapping, error) {
+	lines, err := readLines(mappingsFile)
 	if err != nil {
 		return nil, err
 	}
 
-	allMappingsByLocalPort := make(map[localPort]svcPortMapping)
+	allMappings := make([]svcPortMapping, len(lines))
 
-	for k, v := range p.Map() {
-		aLocalPortInt, err := strconv.Atoi(k)
-		aLocalPort := localPort(aLocalPortInt)
+	for _, line := range lines {
+		svcAndPortsSlice := strings.Split(line, " ")
+		if len(svcAndPortsSlice) != 2 {
+			return nil, fmt.Errorf(
+				"expected format is svc/<name> <port>:<containerPort>,"+
+					"but got %q instead", line,
+			)
+		}
+
+		ports := svcAndPortsSlice[1]
+		portsSlice := strings.Split(ports, ":")
+
+		if len(portsSlice) != 2 {
+			return nil, fmt.Errorf(
+				"expected format of the ports slice is <port>:<containerPort>,"+
+					"but got %q instead", ports,
+			)
+		}
+
+		aLocalPortInt, err := strconv.Atoi(portsSlice[0])
 		if err != nil {
-			return nil, fmt.Errorf("could not parse the local port %s: %w", k, err)
+			return nil, fmt.Errorf("could not parse the local port %s: %w", portsSlice[0], err)
 		}
-
-		svcNameAndContainerPortSlice := strings.Split(v, ",")
-		if len(svcNameAndContainerPortSlice) != 2 {
-			return nil, fmt.Errorf("expected 2 elements to be parsed from the string value for local port %d,"+
-				"but got %d instead", aLocalPort, len(svcNameAndContainerPortSlice))
-		}
-
-		containerPort, err := strconv.Atoi(svcNameAndContainerPortSlice[1])
+		aContainerPortInt, err := strconv.Atoi(portsSlice[1])
 		if err != nil {
-			return nil, fmt.Errorf("could not parse the container port %s: %w", svcNameAndContainerPortSlice[1], err)
+			return nil, fmt.Errorf("could not parse the container port %s: %w", portsSlice[1], err)
 		}
+
+		aLocalPort := port(aLocalPortInt)
+		aContainerPort := port(aContainerPortInt)
 
 		mapping := svcPortMapping{
-			svcName:       svcNameAndContainerPortSlice[0],
+			svcName:       svcAndPortsSlice[0],
 			localPort:     aLocalPort,
-			containerPort: containerPort,
+			containerPort: aContainerPort,
 		}
-		allMappingsByLocalPort[aLocalPort] = mapping
+		allMappings = append(allMappings, mapping)
 	}
 
-	return allMappingsByLocalPort, nil
+	return allMappings, nil
+}
+
+func readLines(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			_ = fmt.Errorf("could not close file %s: %w", path, err)
+			os.Exit(1)
+		}
+	}(file)
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "#") && len(line) > 0 {
+			lines = append(lines, line)
+		}
+	}
+	return lines, scanner.Err()
 }
