@@ -26,7 +26,7 @@ func parseSvcPortMapping(mappingsFile string) ([]svcPortMapping, error) {
 		return nil, err
 	}
 
-	allMappings := make([]svcPortMapping, len(lines))
+	allMappings := make([]svcPortMapping, 0)
 
 	for _, line := range lines {
 		svcAndPortsSlice := strings.Split(line, " ")
